@@ -1,12 +1,11 @@
 import "./globals.css";
 import { Inter } from "next/font/google";
-// Import ClientProviders directly (do NOT dynamic() with ssr:false) so providers mount earlier
+import Script from "next/script";
 import ClientProviders from "@/components/ClientProviders/ClientProviders";
 import ConditionalLayout from "@/components/Layout/ConditionalLayout";
 import SimulatedAlertBubble from "@/components/SimulatedAlertBubble";
 import BackToTop from "@/components/BackToTop";
 import Preloader from "@/components/Preloader";
-
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,12 +20,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} bg-darkmode text-white overflow-x-hidden`}>
         <Preloader />
         {/* ConditionalLayout will render Header/Footer except on routes we hide (e.g., /profile) */}
-        {/* ClientProviders is a client component that mounts Toast + Preloader providers */}
         <ConditionalLayout>
           <ClientProviders>{children}</ClientProviders>
         </ConditionalLayout>
-         <BackToTop />
+
+        <BackToTop />
         <SimulatedAlertBubble />
+
+        {/* ✅ Add Tawk.to Live Chat */}
+        <Script id="tawk-to" strategy="afterInteractive">
+          {`
+            var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
+            (function(){
+              var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
+              s1.async=true;
+              s1.src='https://embed.tawk.to/690a770e5968e81953daef1e/1j98e252n';
+              s1.charset='UTF-8';
+              s1.setAttribute('crossorigin','*');
+              s0.parentNode.insertBefore(s1,s0);
+            })();
+          `}
+        </Script>
       </body>
     </html>
   );
