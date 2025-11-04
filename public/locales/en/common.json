@@ -1,0 +1,31 @@
+{
+  "auth": {
+    "enter_name": "Please enter your name.",
+    "enter_email": "Please enter your email.",
+    "password_min": "Password must be at least 6 characters.",
+    "password_match": "Passwords do not match.",
+    "signup_failed": "Failed to sign up",
+    "login_failed": "Failed to sign in",
+    "enter_email_password": "Please enter email and password.",
+    "full_name": "Full Name",
+    "full_name_placeholder": "Enter your full name",
+    "email_label": "Email Address",
+    "email_placeholder": "Enter your email",
+    "password_label": "Password",
+    "password_placeholder": "Enter your password",
+    "confirm_password_label": "Confirm Password",
+    "confirm_password_placeholder": "Confirm password",
+    "register_title": "Nexus Tech Registration",
+    "welcome_title": "Welcome to Nexus Tech",
+    "register_subtitle": "Join the future of digital innovation.",
+    "welcome_subtitle": "Log in to continue your Nexus journey.",
+    "create_account": "Create Account",
+    "sign_in": "Sign In",
+    "already_have_account": "Already part of Nexus?",
+    "new_to_nexus": "New to Nexus Tech?"
+  },
+  "global": {
+    "please_wait": "Please wait...",
+    "close": "Close"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "welcome": "Bienvenido",
+  "change_language": "Cambiar idioma",
+  "language_prompt": "Detectamos que tu idioma es {{lang}}. ¿Quieres cambiar?"
+}
