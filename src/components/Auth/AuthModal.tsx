@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import { logUserActivity } from "@/lib/userActivity";
@@ -92,10 +92,16 @@ export default function AuthModal({ open, onClose, initialView = "login" }: Prop
     setLoading(true);
 
     try {
+      // Explicitly send the user to the callback route so the app can properly
+      // parse the magic-link tokens and redirect to /profile.
+      const redirectTo = `${window.location.origin}/auth/callback?type=signup&name=${encodeURIComponent(
+        name.trim()
+      )}&email=${encodeURIComponent(email.trim())}`;
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name: name.trim() } },
+        options: { data: { name: name.trim() }, emailRedirectTo: redirectTo },
       });
 
       const actualError = signUpError || null;
@@ -143,10 +149,14 @@ export default function AuthModal({ open, onClose, initialView = "login" }: Prop
     setResendMessage(null);
 
     try {
+      const redirectTo = `${window.location.origin}/auth/callback?type=signup&name=${encodeURIComponent(
+        confirmSentTo?.name ?? ""
+      )}&email=${encodeURIComponent(confirmSentTo.email)}`;
+
       const { data, error: resendError } = await supabase.auth.signUp({
         email: confirmSentTo.email,
         password: password || Math.random().toString(36).slice(-8),
-        options: { data: { name: confirmSentTo?.name || undefined } },
+        options: { data: { name: confirmSentTo?.name || undefined }, emailRedirectTo: redirectTo },
       });
 
       const actualError = resendError || null;

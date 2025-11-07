@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { getImagePrefix } from "@/utils/utils";
 import CardSlider from "./slider";
 
+
 const Hero = () => {
   const [isBuying, setIsBuyingOpen] = useState(false);
   const [isSelling, setIsSellingOpen] = useState(false);

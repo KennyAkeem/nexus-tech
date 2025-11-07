@@ -4,64 +4,112 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+/**
+ * Auth callback page that handles supabase magic-link / OAuth callbacks.
+ * - Uses supabase.auth.getSessionFromUrl() when available (safe runtime check)
+ * - Falls back to parsing tokens from URL fragment / query and calling supabase.auth.setSession
+ * - After session is established reconciles profile and redirects to /profile
+ */
 export default function AuthCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<"loading"|"error"|"done">("loading");
+  const [status, setStatus] = useState<"loading" | "error" | "done">("loading");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // This will run on first render
-    const access_token = searchParams.get("access_token");
-    const refresh_token = searchParams.get("refresh_token");
-    const type = searchParams.get("type");
-    const name = searchParams.get("name");
-    const email = searchParams.get("email");
+    let mounted = true;
 
-    if (type === "signup" && access_token && refresh_token) {
-      // Attempt to sign in using the tokens from the Supabase email link
-      supabase.auth.setSession({
-        access_token,
-        refresh_token
-      }).then(async ({ error }) => {
-        if (error) {
-          setError(error.message);
-          setStatus("error");
-          return;
+    const parseHashTokens = (href: string) => {
+      // e.g. access_token=...&refresh_token=... in fragment after #
+      const hashIndex = href.indexOf('#');
+      const fragment = hashIndex === -1 ? '' : href.slice(hashIndex + 1);
+      const params = new URLSearchParams(fragment);
+      return {
+        access_token: params.get('access_token'),
+        refresh_token: params.get('refresh_token'),
+        type: params.get('type'),
+      };
+    };
+
+    const handleCallback = async () => {
+      setStatus("loading");
+      setError(null);
+
+      try {
+        let user = null;
+
+        // Prefer calling getSessionFromUrl if it exists (supabase-js v2 exposes it in some versions)
+        const authAny = supabase.auth as any;
+        if (typeof authAny.getSessionFromUrl === "function") {
+          // storeSession: true -> stores session in localStorage/cookie depending on client setup
+          const result = await authAny.getSessionFromUrl?.({ storeSession: true });
+          // result may contain data.session
+          user = result?.data?.session?.user ?? null;
         }
 
-        // session set - try to ensure the user's profile has the display name entered at signup
-        try {
-          // get current user
-          const {
-            data: { user },
-            error: getUserError,
-          } = await supabase.auth.getUser();
+        // If we didn't get a user from getSessionFromUrl, try fallbacks:
+        if (!user) {
+          // 1) Try reading tokens from query params (older links)
+          const access_token_q = searchParams.get("access_token");
+          const refresh_token_q = searchParams.get("refresh_token");
+          const type_q = searchParams.get("type");
 
-          if (getUserError) {
-            console.warn("getUser after setSession error:", getUserError);
+          if (type_q === "signup" && access_token_q && refresh_token_q) {
+            const { error: setErr } = await supabase.auth.setSession({
+              access_token: access_token_q,
+              refresh_token: refresh_token_q,
+            });
+            if (setErr) {
+              setError(setErr.message);
+              setStatus("error");
+              return;
+            }
+            const { data: userData } = await supabase.auth.getUser();
+            user = userData?.user ?? null;
+          } else {
+            // 2) Try parsing fragment (#access_token=...) — Supabase magic links often put tokens in the fragment
+            const { access_token, refresh_token, type } = parseHashTokens(window.location.href);
+            if (type === "signup" && access_token && refresh_token) {
+              const { error: setErr } = await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
+              if (setErr) {
+                setError(setErr.message);
+                setStatus("error");
+                return;
+              }
+              const { data: userData } = await supabase.auth.getUser();
+              user = userData?.user ?? null;
+            }
           }
+        }
 
-          const userId = user?.id ?? null;
-          if (userId) {
+        if (!mounted) return;
+
+        // If we have a user, reconcile profile using optional name/email query params
+        if (user?.id) {
+          try {
+            const name = searchParams.get("name") ?? undefined;
+            const email = searchParams.get("email") ?? undefined;
+
             // fetch existing profile
             const { data: profile, error: profileError } = await supabase
               .from("profiles")
               .select("name")
-              .eq("id", userId)
+              .eq("id", user.id)
               .single();
 
-            if (profileError && profileError.code !== "PGRST116") {
-              // PGRST116 is "No rows found" in some setups; ignore that if no row exists
+            // ignore "no rows" error code in some setups
+            if (profileError && (profileError as any).code !== "PGRST116") {
               console.warn("profiles select error:", profileError);
             }
 
-            const existingName = profile?.name ?? null;
+            const existingName = (profile as any)?.name ?? null;
 
-            // If a name was provided in the signup flow and profile either missing or has a placeholder like "New User", update it.
             if (name && name.trim().length > 0 && (!existingName || existingName === "New User")) {
               const { error: upsertErr } = await supabase.from("profiles").upsert({
-                id: userId,
+                id: user.id,
                 name: name.trim(),
                 email: email ?? undefined,
               });
@@ -70,20 +118,26 @@ export default function AuthCallbackPage() {
                 console.warn("Error upserting profile name after confirmation:", upsertErr);
               }
             }
+          } catch (e) {
+            console.error("Error reconciling profile after confirmation:", e);
           }
-        } catch (e) {
-          console.error("Error reconciling profile after confirmation:", e);
         }
 
         setStatus("done");
-        // You can change '/profile' to your dashboard/main page!
-        // Replace so history doesn't keep the token params
+        // Use replace so the token params are not kept in history
         router.replace("/profile");
-      });
-    } else {
-      setStatus("error");
-      setError("Invalid or missing confirmation link.");
-    }
+      } catch (err: any) {
+        console.error("Error handling auth callback:", err);
+        setError(err?.message ?? "Failed to process authentication callback.");
+        setStatus("error");
+      }
+    };
+
+    handleCallback();
+
+    return () => {
+      mounted = false;
+    };
   }, [searchParams, router]);
 
   if (status === "loading") {
