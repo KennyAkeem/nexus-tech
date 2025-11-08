@@ -92,10 +92,13 @@ export default function ProfilePage() {
     const fetchStats = async () => {
       setLoadingStats(true);
       try {
+        // ONLY count approved/successful investments for "Total Invested"
+        // We query for status === "success" to mirror the growth chart behavior.
         const { data: investedData, error: investedErr } = await supabase
           .from("investments")
           .select("amount, status")
-          .eq("user_id", user.id);
+          .eq("user_id", user.id)
+          .eq("status", "success"); // <-- only approved/successful investments
 
         if (investedErr) {
           console.error("investedErr", investedErr);
@@ -103,14 +106,14 @@ export default function ProfilePage() {
           const investedNumbers = investedData.map((r: any) => Number(r.amount) || 0);
           const investedSum = investedNumbers.reduce((s: number, v: number) => s + v, 0);
 
-          // set total invested
+          // set total invested (confirmed/success only)
           setTotalInvested(investedSum);
 
           // Total profit = 5% of total invested (daily rate)
           const dailyProfit = Math.round(investedSum * 0.05 * 100) / 100;
           setTotalProfit(dailyProfit);
         } else {
-          // no investments
+          // no successful investments
           setTotalInvested(0);
           setTotalProfit(0);
         }
@@ -192,13 +195,13 @@ export default function ProfilePage() {
       // ignore - fallback to other strategies
     }
 
-    // fallback: compute from approved investments
+    // fallback: compute from approved/successful investments only
     try {
       const { data } = await supabase
         .from("investments")
         .select("coin, amount, status")
         .eq("user_id", user.id)
-        .in("status", ["success", "approved", "confirmed", "completed"]);
+        .eq("status", "success"); // only count successful investments for balances fallback
       const b: Record<string, number> = { btc: 0, eth: 0, usdt: 0 };
       if (Array.isArray(data)) {
         data.forEach((r: any) => {
@@ -290,12 +293,15 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
+                // Refresh profits button: recompute using only approved/successful investments
                 setLoadingStats(true);
                 try {
                   const { data: investedData } = await supabase
                     .from("investments")
                     .select("amount, status")
-                    .eq("user_id", user.id);
+                    .eq("user_id", user.id)
+                    .eq("status", "success"); // <-- only successful investments
+
                   const investedNumbers = (investedData || []).map(
                     (r: any) => Number(r.amount) || 0
                   );
@@ -512,8 +518,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      // ... all code above unchanged
-
+      {/* Invest Modal */}
       {showInvestModal && (
         <InvestModal
           profile={profileForModal}
