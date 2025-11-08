@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getImagePrefix } from "@/utils/utils";
 import CardSlider from "./slider";
+import TypingLoop from "@/components/TypingLoop/TypingLoop";
 
 
 const Hero = () => {
@@ -75,17 +76,8 @@ const Hero = () => {
               Trade <span className="text-primary">The Stock Market</span> With our{" "}
               <span className="text-primary">Sci-fi Strategies</span>!
             </h1>
-
-            {/* Responsive Buttons */}
-            <div className="flex flex-wrap justify-center md:justify-start gap-4 sm:gap-6">
-              <button className="bg-primary border border-primary rounded-lg text-lg sm:text-xl font-medium hover:bg-transparent hover:text-primary text-darkmode py-3 px-8 w-full sm:w-auto text-center">
-                USDT/BTC
-              </button>
-              <button className="bg-transparent border border-primary rounded-lg text-lg sm:text-xl font-medium hover:bg-primary hover:text-darkmode text-primary py-3 px-8 w-full sm:w-auto text-center">
-                USDT/ETH
-              </button>
-            </div>
-
+           {/*  * Typing Loop Component */}
+            <TypingLoop />
             {/* App Store Buttons */}
             <div className="flex flex-wrap justify-center md:justify-start gap-6 sm:gap-10 mt-16">
               <Link href="#" className="hover:scale-105 duration-300">
