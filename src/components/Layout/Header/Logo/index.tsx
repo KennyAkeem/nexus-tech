@@ -10,7 +10,7 @@ export default function Logo() {
       href="/"
       style={{
         display: "inline-block",
-        transform: "rotate(-5deg)",
+        transform: "rotate(0deg)",
         transition: "transform 0.4s ease, scale 0.4s ease",
       }}
       onMouseEnter={(e) => {

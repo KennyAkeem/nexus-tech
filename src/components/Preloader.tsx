@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 
 export default function Preloader() {
   const [loading, setLoading] = useState(true);
@@ -23,15 +24,23 @@ export default function Preloader() {
   if (!loading) return null;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black text-white z-[9999]">
-      <div className="flex flex-col items-center space-y-3">
-        <h1 className="text-3xl font-bold tracking-wide">Starspacetechnology</h1>
-        <div className="w-14 h-1.5 bg-white/40 rounded overflow-hidden">
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-black z-[9999]">
+      <div className="flex flex-col items-center space-y-4">
+        {/* Replace text with your logo image */}
+        <Image
+          src="/logo.png"
+          alt="StarSpaceTechnology Logo"
+          width={180}
+          height={60}
+          className="object-contain animate-fade"
+        />
+
+        <div className="w-20 h-1.5 bg-white/40 rounded overflow-hidden">
           <div className="h-full w-1/2 bg-white animate-[load_1.2s_linear_infinite]" />
         </div>
       </div>
 
-      {/* Inline keyframes for the loading bar */}
+      {/* Inline keyframes for the loading bar and fade animation */}
       <style jsx>{`
         @keyframes load {
           0% {
@@ -40,6 +49,20 @@ export default function Preloader() {
           100% {
             transform: translateX(200%);
           }
+        }
+        @keyframes fade {
+          0% {
+            opacity: 0.3;
+          }
+          50% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0.3;
+          }
+        }
+        .animate-fade {
+          animation: fade 2s ease-in-out infinite;
         }
       `}</style>
     </div>
