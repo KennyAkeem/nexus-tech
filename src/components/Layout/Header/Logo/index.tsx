@@ -10,7 +10,7 @@ export default function Logo() {
       href="/"
       style={{
         display: "inline-block",
-        transform: "rotate(0deg)",
+        
         transition: "transform 0.4s ease, scale 0.4s ease",
       }}
       onMouseEnter={(e) => {
@@ -18,7 +18,7 @@ export default function Logo() {
         e.currentTarget.style.filter = "drop-shadow(0 0 6px #00d4ff)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "rotate(-5deg)";
+        
         e.currentTarget.style.filter = "none";
       }}
     >
