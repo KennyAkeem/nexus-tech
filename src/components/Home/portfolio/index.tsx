@@ -36,11 +36,11 @@ const Portfolio = () => {
               Cryptocurrency <span className="text-primary">Portfolio</span>
             </p>
             <h2 className="text-white sm:text-40 text-30 mb-4 font-medium">
-              Create your crypto portfolio today with Nex
-              <span className="text-primary">us</span>!
+              Create your crypto portfolio today with Starspace
+              <span className="text-primary">Tech</span>!
             </h2>
             <p className="text-muted text-opacity-60 text-18">
-              Nexus has a variety of features that make it the best
+              Starspacetechnology has a variety of features that make it the best
               <br className="md:block hidden" /> place to start trading.
             </p>
 

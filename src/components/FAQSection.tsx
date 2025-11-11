@@ -10,10 +10,10 @@ type FAQ = {
 
 const FAQS: FAQ[] = [
   {
-    id: "what-is-nexus-tech",
-    q: "What is Nexus Tech?",
+    id: "what-is-Starspace",
+    q: "What is Starspace?",
     a:
-      "Nexus Tech is a trusted investment platform that allows users to invest securely in cryptocurrencies such as Bitcoin, Ethereum, and USDT. We focus on making digital investing simple, transparent, and accessible while applying disciplined risk-management and data-driven strategies.",
+      "Starspace is a trusted investment platform that allows users to invest securely in cryptocurrencies such as Bitcoin, Ethereum, and USDT. We focus on making digital investing simple, transparent, and accessible while applying disciplined risk-management and data-driven strategies.",
   },
   {
     id: "industries",
@@ -25,7 +25,7 @@ const FAQS: FAQ[] = [
     id: "guarantee-growth",
     q: "Can you guarantee growth?",
     a:
-      "No legitimate investment can promise guaranteed returns. Nexus Tech commits to transparency and professional risk management — we aim to maximize returns while minimizing avoidable risk through analytics and adaptive strategies. Past performance is not a guarantee of future results.",
+      "No legitimate investment can promise guaranteed returns. Starspacetechnology commits to transparency and professional risk management — we aim to maximize returns while minimizing avoidable risk through analytics and adaptive strategies. Past performance is not a guarantee of future results.",
   },
   {
     id: "plans-special",
@@ -148,7 +148,7 @@ export default function FAQSection(): JSX.Element {
             <h2 id="faq-heading" className="faq-title">
               Get the answers to common questions
             </h2>
-            <p className="lead">Quickly find help or read the most common questions about Nexus Tech.</p>
+            <p className="lead">Quickly find help or read the most common questions about Starspacetechnology.</p>
           </div>
 
           <div className="faq-controls">

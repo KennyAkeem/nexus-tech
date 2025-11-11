@@ -12,7 +12,7 @@ const Perks = () => {
           </p>
 
           <h2 className="text-white sm:text-4xl text-2xl font-medium leading-tight px-2">
-            Join Nex<span className="text-primary">us</span> Community and Testify with others!
+            Join Starspace<span className="text-primary">Tech</span> Community and Testify with others!
           </h2>
 
           <div

@@ -25,7 +25,7 @@ export default function Preloader() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black text-white z-[9999]">
       <div className="flex flex-col items-center space-y-3">
-        <h1 className="text-3xl font-bold tracking-wide">NEXUS TECH</h1>
+        <h1 className="text-3xl font-bold tracking-wide">Starspacetechnology</h1>
         <div className="w-14 h-1.5 bg-white/40 rounded overflow-hidden">
           <div className="h-full w-1/2 bg-white animate-[load_1.2s_linear_infinite]" />
         </div>

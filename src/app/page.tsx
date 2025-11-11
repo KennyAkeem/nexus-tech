@@ -13,7 +13,7 @@ import VideoSection from "@/components/VideoSection";
   
 
 export const metadata = {
-  title: "nexus tech - home",
+  title: "Starspacetechnology - home",
 };
 
 export default function Home() {

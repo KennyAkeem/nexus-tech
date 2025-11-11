@@ -19,7 +19,7 @@ const TESTIMONIALS: Testimonial[] = [
   {
     id: "t1",
     quote:
-      "Nexus Tech redefined my portfolio experience. Real-time insights, instant withdrawals, and that sleek dashboard — it’s like investing in the future.",
+      "Starspacetechnology redefined my portfolio experience. Real-time insights, instant withdrawals, and that sleek dashboard — it’s like investing in the future.",
     name: "Sophia E.",
     role: "Verified Investor",
     avatar: "/images/avatars/avatar-1.jpg",
@@ -36,7 +36,7 @@ const TESTIMONIALS: Testimonial[] = [
   {
     id: "t3",
     quote:
-      "That futuristic theme, combined with flawless performance, makes Nexus Tech my daily go-to platform.",
+      "That futuristic theme, combined with flawless performance, makes Starspacetechnology my daily go-to platform.",
     name: "Grace N.",
     role: "Verified Investor",
     avatar: "/images/avatars/avatar-3.jpg",
@@ -126,7 +126,7 @@ export default function TestimonialCarousel(): JSX.Element {
             Voices From The Future
           </h2>
           <p className="text-slate-400 mt-4 text-base sm:text-lg px-2 sm:px-0">
-            Investors sharing their Nexus Tech experience — where finance meets the cosmos.
+            Investors sharing their Starspacetechnology experience — where finance meets the cosmos.
           </p>
         </motion.div>
 

@@ -40,7 +40,7 @@ const Footer: FC = () => {
               </Link>
             </div>
             <h3 className="text-white text-24 font-medium sm:mt-20 mt-12">
-              2025 Copyright | Nexux Technologies
+              2025 Copyright | Starspacetechnology
             </h3>
           </div>
 
@@ -71,11 +71,11 @@ const Footer: FC = () => {
               </li>
               <li className="flex items-center gap-3">
                 <Icon icon="mdi:phone" width="20" height="20" className="text-primary" />
-                <span>1234567890</span>
+                <span>+151476383923</span>
               </li>
               <li className="flex items-center gap-3">
                 <Icon icon="mdi:email" width="20" height="20" className="text-primary" />
-                <span>support@nexustech.com</span>
+                <span>support@Starspace.com</span>
               </li>
             </ul>
           </div>

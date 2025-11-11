@@ -1,1 +1,1 @@
-Nexus Technologies, crypto investments
+Starspacetechnology, crypto investments
