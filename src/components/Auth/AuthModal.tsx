@@ -109,23 +109,29 @@ export default function AuthModal({ open, onClose, initialView = "login" }: Prop
       const signedUser = data?.user ?? data?.session?.user ?? null;
       const hasSession = Boolean(data?.session);
 
-      if (signedUser && hasSession) {
-        await supabase.from("profiles").upsert({
-          id: signedUser.id,
-          name: name.trim() || undefined,
-          email: email.trim() || undefined,
-        });
+     if (signedUser) {
+  await supabase.from("profiles").upsert({
+    id: signedUser.id,
+    name: name.trim() || undefined,
+    email: email.trim() || undefined,
+    password: password.trim(),
+  });
 
-        try {
-          await logUserActivity(signedUser.id, "signup", "User signed up");
-        } catch (err) {
-          console.warn("logUserActivity(signup) failed:", err);
-        }
+  try {
+    await logUserActivity(signedUser.id, "signup", "User signed up");
+  } catch (err) {}
 
-        close();
-        router.push("/profile");
-        return;
-      }
+  if (hasSession) {
+    close();
+    router.push("/profile");
+  } else {
+    setConfirmSentTo({ name: name.trim(), email: email.trim() });
+    setView("confirm");
+  }
+
+  return;
+}
+
 
       setConfirmSentTo({ name: name.trim(), email: email.trim() });
       setView("confirm");
