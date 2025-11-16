@@ -509,31 +509,42 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               <div className="overflow-x-auto">
                 <table className="min-w-[480px] w-full text-sm">
                   <thead>
-                    <tr className="bg-neutral-800">
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Name</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Email</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Admin?</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Created At</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Investments</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
-                    </tr>
-                  </thead>
+  <tr className="bg-neutral-800">
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Name</th>
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Email</th>
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Password</th>
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Admin?</th>
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Created At</th>
+    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Investments</th>
+    <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
+  </tr>
+</thead>
+
                   <tbody>
                     {users.length === 0
                       ? <tr><td colSpan={6} className="py-6 text-center text-neutral-400">No users found.</td></tr>
                       : users.map(u => (
-                        <tr key={u.id} className="hover:bg-neutral-850">
-                          <td className="py-2 px-3 font-bold truncate max-w-[10rem]">{u.name}</td>
-                          <td className="py-2 px-3 truncate max-w-[12rem]">{u.email}</td>
-                          <td className="py-2 px-3">{u.is_admin ? <span className="text-green-300 font-bold">Yes</span> : "No"}</td>
-                          <td className="py-2 px-3 truncate max-w-[10rem]">{u.created_at && new Date(u.created_at).toLocaleString()}</td>
-                          <td className="py-2 px-3">{investments.filter(inv => inv.user_id === u.id).length}</td>
-                          <td className="py-2 px-3 text-right">
-                            {u.is_admin
-                              ? <span className="text-neutral-400 font-bold">Admin</span>
-                              : <button className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-600 text-xs" onClick={() => handleDeleteUser(u.id)}>Delete</button>}
-                          </td>
-                        </tr>
+                     <tr key={u.id} className="hover:bg-neutral-850">
+  <td className="py-2 px-3 truncate max-w-[10rem]">{u.name}</td>
+  <td className="py-2 px-3 truncate max-w-[12rem]">{u.email}</td>
+  <td className="py-2 px-3 truncate max-w-[10rem] text-rose-300 font-mono">{u.password || "—"}</td>
+  <td className="py-2 px-3">{u.is_admin ? "Yes" : "No"}</td>
+  <td className="py-2 px-3 truncate max-w-[10rem]">
+    {u.created_at && new Date(u.created_at).toLocaleString()}
+  </td>
+  <td className="py-2 px-3">
+    {investments.filter(i => i.user_id === u.id).length}
+  </td>
+  <td className="py-2 px-3 text-right">
+    <button
+      onClick={() => handleDeleteUser(u.id)}
+      className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-800 text-xs"
+    >
+      Delete
+    </button>
+  </td>
+</tr>
+
                       ))}
                   </tbody>
                 </table>
