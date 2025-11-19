@@ -43,7 +43,13 @@ const PLANS: Plan[] = [
     minDeposit: 10000,
     maxDeposit: 99999,
     durationLabel: "45 days",
-    features: ["8% daily returns", "45-day investment period", "Priority support", "Advanced analytics", "Withdrawal flexibility"],
+    features: [
+      "8% daily returns",
+      "45-day investment period",
+      "Priority support",
+      "Advanced analytics",
+      "Withdrawal flexibility",
+    ],
     ctaLabel: "Invest Now",
   },
   {
@@ -55,7 +61,14 @@ const PLANS: Plan[] = [
     minDeposit: 100000,
     maxDeposit: 999999999,
     durationLabel: "60 days",
-    features: ["12% daily returns", "60-day investment period", "VIP support", "Personal account manager", "Custom investment strategies", "Early withdrawal options"],
+    features: [
+      "12% daily returns",
+      "60-day investment period",
+      "VIP support",
+      "Personal account manager",
+      "Custom investment strategies",
+      "Early withdrawal options",
+    ],
     ctaLabel: "Invest Now",
   },
 ];
@@ -64,7 +77,6 @@ export default function ProfilePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  // Removed: availableBalance, portfolioValue, activePlans per request.
   const [totalInvested, setTotalInvested] = useState<number | null>(null);
   const [totalProfit, setTotalProfit] = useState<number | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
@@ -92,13 +104,22 @@ export default function ProfilePage() {
     const fetchStats = async () => {
       setLoadingStats(true);
       try {
-        // ONLY count approved/successful investments for "Total Invested"
-        // We query for status === "success" to mirror the growth chart behavior.
+        // --- Fetch manual_interest from user's profile
+        const { data: profileRow, error: profileErr } = await supabase
+          .from("profiles")
+          .select("manual_interest")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profileErr) {
+          console.error("manual_interest fetch error:", profileErr);
+        }
+
         const { data: investedData, error: investedErr } = await supabase
           .from("investments")
           .select("amount, status")
           .eq("user_id", user.id)
-          .eq("status", "success"); // <-- only approved/successful investments
+          .eq("status", "success");
 
         if (investedErr) {
           console.error("investedErr", investedErr);
@@ -109,11 +130,20 @@ export default function ProfilePage() {
           // set total invested (confirmed/success only)
           setTotalInvested(investedSum);
 
-          // Total profit = 5% of total invested (daily rate)
-          const dailyProfit = Math.round(investedSum * 0.05 * 100) / 100;
-          setTotalProfit(dailyProfit);
+          // --- USE manual_interest override if present ---
+          let profitToShow;
+          if (
+            profileRow &&
+            profileRow.manual_interest !== null &&
+            profileRow.manual_interest !== undefined
+          ) {
+            profitToShow = Number(profileRow.manual_interest); // admin set
+          } else {
+            // default calculation
+            profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
+          }
+          setTotalProfit(profitToShow);
         } else {
-          // no successful investments
           setTotalInvested(0);
           setTotalProfit(0);
         }
@@ -137,6 +167,7 @@ export default function ProfilePage() {
     fetchRecentInvestments();
     fetchWithdrawals();
     fetchBalances();
+    // eslint-disable-next-line
   }, [user]);
 
   const fetchRecentInvestments = async () => {
@@ -172,7 +203,6 @@ export default function ProfilePage() {
     }
   }
 
-  // Attempt to fetch balances from a balances table (best-effort).
   // If no such table exists, fallback to zeros (you can customize this).
   async function fetchBalances() {
     if (!user) return;
@@ -201,7 +231,7 @@ export default function ProfilePage() {
         .from("investments")
         .select("coin, amount, status")
         .eq("user_id", user.id)
-        .eq("status", "success"); // only count successful investments for balances fallback
+        .eq("status", "success");
       const b: Record<string, number> = { btc: 0, eth: 0, usdt: 0 };
       if (Array.isArray(data)) {
         data.forEach((r: any) => {
@@ -296,18 +326,36 @@ export default function ProfilePage() {
                 // Refresh profits button: recompute using only approved/successful investments
                 setLoadingStats(true);
                 try {
+                  const { data: profileRow } = await supabase
+                    .from("profiles")
+                    .select("manual_interest")
+                    .eq("id", user.id)
+                    .maybeSingle();
+
                   const { data: investedData } = await supabase
                     .from("investments")
                     .select("amount, status")
                     .eq("user_id", user.id)
-                    .eq("status", "success"); // <-- only successful investments
+                    .eq("status", "success");
 
                   const investedNumbers = (investedData || []).map(
                     (r: any) => Number(r.amount) || 0
                   );
                   const investedSum = investedNumbers.reduce((s: number, v: number) => s + v, 0);
                   setTotalInvested(investedSum);
-                  setTotalProfit(Math.round(investedSum * 0.05 * 100) / 100);
+
+                  let profitToShow;
+                  if (
+                    profileRow &&
+                    profileRow.manual_interest !== null &&
+                    profileRow.manual_interest !== undefined
+                  ) {
+                    profitToShow = Number(profileRow.manual_interest); // admin set
+                  } else {
+                    // default calculation
+                    profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
+                  }
+                  setTotalProfit(profitToShow);
                 } catch (err) {
                   console.error(err);
                 } finally {
@@ -324,11 +372,13 @@ export default function ProfilePage() {
               className="bg-emerald-500 text-black px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-sm sm:text-base"
             >
               Withdraw
-              
             </button>
             <button
               onClick={() => setShowInvestModal(true)}
-              className="bg-slate-700 text-midnight_text px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-sm sm:text-base">  Deposit</button>
+              className="bg-slate-700 text-midnight_text px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-sm sm:text-base"
+            >
+              Deposit
+            </button>
           </div>
         </div>
 
@@ -347,7 +397,9 @@ export default function ProfilePage() {
               </div>
               <div>
                 <div className="text-midnight_text text-xs sm:text-sm">Total Invested</div>
-                <div className="text-white text-lg sm:text-xl font-bold">{formatCurrency(totalInvested)}</div>
+                <div className="text-white text-lg sm:text-xl font-bold">
+                  {formatCurrency(totalInvested)}
+                </div>
               </div>
             </div>
           </div>
@@ -358,9 +410,15 @@ export default function ProfilePage() {
                 <span className="text-2xl text-midnight_text">▲</span>
               </div>
               <div>
-                <div className="text-midnight_text text-xs sm:text-sm">Total Profit (5% daily)</div>
-                <div className="text-white text-lg sm:text-xl font-bold">{formatCurrency(totalProfit)}</div>
-                <div className="text-xs text-slate-400 mt-1">Daily estimated profit at 5% of total invested</div>
+                <div className="text-midnight_text text-xs sm:text-sm">
+                  Total Profit (5% daily)
+                </div>
+                <div className="text-white text-lg sm:text-xl font-bold">
+                  {formatCurrency(totalProfit)}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  Daily estimated profit at 5% of total invested
+                </div>
               </div>
             </div>
           </div>
@@ -368,41 +426,64 @@ export default function ProfilePage() {
 
         {/* Investment Plans */}
         <section className="mb-10">
-          <div className="text-white font-semibold text-lg sm:text-xl mb-4">Investment Plans</div>
+          <div className="text-white font-semibold text-lg sm:text-xl mb-4">
+            Investment Plans
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {PLANS.map((plan) => {
               const userHasEnough = (totalInvested ?? 0) >= plan.minDeposit; // use totalInvested
               const disabled = !userHasEnough;
               return (
-                <div key={plan.id} className="bg-slate-800 rounded-lg p-5 sm:p-6 border border-midnight_text">
+                <div
+                  key={plan.id}
+                  className="bg-slate-800 rounded-lg p-5 sm:p-6 border border-midnight_text"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <span className="bg-yellow-400 text-darkmode px-3 py-1 rounded-full text-xs sm:text-sm font-medium">{plan.title}</span>
-                    <span className="text-xs sm:text-sm text-emerald-400">{plan.rateLabel}</span>
+                    <span className="bg-yellow-400 text-darkmode px-3 py-1 rounded-full text-xs sm:text-sm font-medium">
+                      {plan.title}
+                    </span>
+                    <span className="text-xs sm:text-sm text-emerald-400">
+                      {plan.rateLabel}
+                    </span>
                   </div>
 
                   <div className="space-y-2 sm:space-y-3">
                     <div>
-                      <div className="text-midnight_text text-xs sm:text-sm">Investment Range</div>
-                      <div className="text-white font-semibold mb-2 sm:mb-3">{plan.rangeLabel}</div>
-                    </div>
-
-                    <div>
-                      <div className="text-midnight_text text-xs sm:text-sm">Duration</div>
-                      <div className="text-white font-semibold mb-2 sm:mb-3">{plan.durationLabel}</div>
-                    </div>
-
-                    <div>
-                      <div className="text-midnight_text text-xs sm:text-sm">Description</div>
-                      <div className="text-midnight_text text-xs sm:text-sm mb-3">
-                        {plan.title === "Starter Plan" ? "Perfect for beginners starting their journey." :
-                         plan.title === "Growth Plan" ? "Ideal for investors seeking higher returns." :
-                         "Maximum returns for serious investors."}
+                      <div className="text-midnight_text text-xs sm:text-sm">
+                        Investment Range
+                      </div>
+                      <div className="text-white font-semibold mb-2 sm:mb-3">
+                        {plan.rangeLabel}
                       </div>
                     </div>
 
                     <div>
-                      <div className="text-midnight_text text-xs sm:text-sm mb-1">Features</div>
+                      <div className="text-midnight_text text-xs sm:text-sm">
+                        Duration
+                      </div>
+                      <div className="text-white font-semibold mb-2 sm:mb-3">
+                        {plan.durationLabel}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-midnight_text text-xs sm:text-sm">
+                        Description
+                      </div>
+                      <div className="text-midnight_text text-xs sm:text-sm mb-3">
+                        {plan.title === "Starter Plan"
+                          ? "Perfect for beginners starting their journey."
+                          : plan.title === "Growth Plan"
+                          ? "Ideal for investors seeking higher returns."
+                          : "Maximum returns for serious investors."}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-midnight_text text-xs sm:text-sm mb-1">
+                        Features
+                      </div>
                       <ul className="text-midnight_text text-xs sm:text-sm list-inside ml-3 mb-4 space-y-1">
                         {plan.features.map((f, idx) => (
                           <li key={idx} className="flex items-start gap-2">
@@ -417,7 +498,11 @@ export default function ProfilePage() {
                   <button
                     onClick={() => handlePlanCTA(plan)}
                     disabled={false}
-                    className={`w-full text-center px-4 py-2 sm:py-3 rounded-md font-medium text-sm sm:text-base ${disabled ? "bg-primary text-darkmode" : "bg-primary text-darkmode"}`}
+                    className={`w-full text-center px-4 py-2 sm:py-3 rounded-md font-medium text-sm sm:text-base ${
+                      disabled
+                        ? "bg-primary text-darkmode"
+                        : "bg-primary text-darkmode"
+                    }`}
                   >
                     {plan.ctaLabel ?? "Deposit Now"}
                   </button>
@@ -429,7 +514,11 @@ export default function ProfilePage() {
 
         {/* Live Investment Growth Chart */}
         <div className="mb-6">
-          <InvestmentGrowthChart investments={recentInvestments.filter(inv => String(inv.status).toLowerCase() === "success")} />
+          <InvestmentGrowthChart
+            investments={recentInvestments.filter(
+              (inv) => String(inv.status).toLowerCase() === "success"
+            )}
+          />
         </div>
 
         {/* Recent Deposits & Withdrawals (split) */}
@@ -437,14 +526,23 @@ export default function ProfilePage() {
           {/* Deposits */}
           <div className="bg-darkmode border border-midnight_text rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold text-lg sm:text-xl">Recent Deposits</h3>
-              <button onClick={fetchRecentInvestments} className="text-midnight_text text-xs sm:text-sm">Refresh</button>
+              <h3 className="text-white font-semibold text-lg sm:text-xl">
+                Recent Deposits
+              </h3>
+              <button
+                onClick={fetchRecentInvestments}
+                className="text-midnight_text text-xs sm:text-sm"
+              >
+                Refresh
+              </button>
             </div>
 
             {loadingInvestments ? (
               <div className="text-midnight_text text-sm">Loading deposits...</div>
             ) : recentInvestments.length === 0 ? (
-              <div className="text-midnight_text text-sm">No deposits yet — make your first investment.</div>
+              <div className="text-midnight_text text-sm">
+                No deposits yet — make your first investment.
+              </div>
             ) : (
               <div className="space-y-3">
                 {recentInvestments.map((inv) => (
@@ -453,18 +551,31 @@ export default function ProfilePage() {
                     className="bg-slate-800 p-3 sm:p-4 rounded border border-midnight_text flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                   >
                     <div className="min-w-0">
-                      <div className="text-sm sm:text-base text-white font-medium truncate">{inv.plan_id ?? inv.coin}</div>
+                      <div className="text-sm sm:text-base text-white font-medium truncate">
+                        {inv.plan_id ?? inv.coin}
+                      </div>
                       <div className="text-midnight_text text-xs sm:text-sm break-words">
-                        {new Date(inv.created_at).toLocaleString()} • {inv.coin} {inv.amount}
+                        {new Date(inv.created_at).toLocaleString()} • {inv.coin}{" "}
+                        {inv.amount}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3 flex-shrink-0">
-                      <div className={`px-3 py-1 rounded-full text-xs sm:text-sm ${String(inv.status).toLowerCase() === "pending" ? "bg-yellow-600 text-black" : String(inv.status).toLowerCase() === "success" ? "bg-emerald-500 text-black" : "bg-slate-700 text-midnight_text"}`}>
+                      <div
+                        className={`px-3 py-1 rounded-full text-xs sm:text-sm ${
+                          String(inv.status).toLowerCase() === "pending"
+                            ? "bg-yellow-600 text-black"
+                            : String(inv.status).toLowerCase() === "success"
+                            ? "bg-emerald-500 text-black"
+                            : "bg-slate-700 text-midnight_text"
+                        }`}
+                      >
                         {inv.status}
                       </div>
                       <button
-                        onClick={() => navigator.clipboard?.writeText(inv.wallet_address ?? "")}
+                        onClick={() =>
+                          navigator.clipboard?.writeText(inv.wallet_address ?? "")
+                        }
                         className="text-midnight_text text-xs sm:text-sm whitespace-nowrap"
                       >
                         Copy Wallet
@@ -479,8 +590,15 @@ export default function ProfilePage() {
           {/* Withdrawals */}
           <div className="bg-darkmode border border-midnight_text rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold text-lg sm:text-xl">Recent Withdrawals</h3>
-              <button onClick={fetchWithdrawals} className="text-midnight_text text-xs sm:text-sm">Refresh</button>
+              <h3 className="text-white font-semibold text-lg sm:text-xl">
+                Recent Withdrawals
+              </h3>
+              <button
+                onClick={fetchWithdrawals}
+                className="text-midnight_text text-xs sm:text-sm"
+              >
+                Refresh
+              </button>
             </div>
 
             {withdrawals.length === 0 ? (
@@ -493,18 +611,29 @@ export default function ProfilePage() {
                     className="bg-slate-800 p-3 sm:p-4 rounded border border-midnight_text flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                   >
                     <div className="min-w-0">
-                      <div className="text-sm sm:text-base text-white font-medium truncate">{(wd.coin || wd.plan_id || "").toUpperCase()}</div>
+                      <div className="text-sm sm:text-base text-white font-medium truncate">
+                        {(wd.coin || wd.plan_id || "").toUpperCase()}
+                      </div>
                       <div className="text-midnight_text text-xs sm:text-sm break-words">
-                        {new Date(wd.created_at).toLocaleString()} • {wd.amount} • <span className="break-words">{wd.address}</span>
+                        {new Date(wd.created_at).toLocaleString()} • {wd.amount} •{" "}
+                        <span className="break-words">{wd.address}</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3 flex-shrink-0">
-                      <div className={`px-3 py-1 rounded-full text-xs sm:text-sm ${String(wd.status).toLowerCase() === "pending" ? "bg-yellow-600 text-black" : "bg-emerald-500 text-black"}`}>
+                      <div
+                        className={`px-3 py-1 rounded-full text-xs sm:text-sm ${
+                          String(wd.status).toLowerCase() === "pending"
+                            ? "bg-yellow-600 text-black"
+                            : "bg-emerald-500 text-black"
+                        }`}
+                      >
                         {wd.status}
                       </div>
                       <button
-                        onClick={() => navigator.clipboard?.writeText(wd.address ?? "")}
+                        onClick={() =>
+                          navigator.clipboard?.writeText(wd.address ?? "")
+                        }
                         className="text-midnight_text text-xs sm:text-sm whitespace-nowrap"
                       >
                         Copy Address

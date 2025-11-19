@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 const TABLE_FETCH_LIMIT = 1000;
+
+// Start of original file (now with manual interest feature)
 
 export default function AdminDashboard({ showToast }: { showToast?: (type: string, message: string) => void }) {
   const router = useRouter();
@@ -31,6 +33,10 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
   });
 
   const [loadingCore, setLoadingCore] = useState(false);
+
+  // MANUAL INTEREST FEATURE STATE
+  const [editingUserInterestId, setEditingUserInterestId] = useState<string | null>(null);
+  const [interestEditValue, setInterestEditValue] = useState<string>("");
 
   // --- Profile loading ---
   useEffect(() => {
@@ -114,6 +120,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
   // --- Realtime subscriptions ---
   useEffect(() => {
     if (currentProfile === undefined || currentProfile === null) return;
+    // INVESTMENTS
     const invChannel = supabase
       .channel("realtime_investments")
       .on(
@@ -129,7 +136,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
         }
       )
       .subscribe();
-
+    // WITHDRAWALS
     const wdChannel = supabase
       .channel("realtime_withdrawals")
       .on(
@@ -145,7 +152,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
         }
       )
       .subscribe();
-
+    // USER ACTIVITY
     const logChannel = supabase
       .channel("realtime_user_activity")
       .on(
@@ -168,7 +175,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
     return users.find((u) => u.id === id) || {};
   }
 
-  async function saveAddresses(e: React.FormEvent) {
+  async function saveAddresses(e: FormEvent) {
     e.preventDefault();
     try {
       const rows = [
@@ -240,6 +247,46 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
       showToast && showToast("error", "Failed to delete user.");
     }
   }
+
+  
+// ----------- MANUAL INTEREST HANDLING -----------
+  async function handleSaveInterest(userId: string) {
+    try {
+      // Accept string or number, translate empty string to null, otherwise parse number safely
+      let input = interestEditValue.trim();
+      // TS: make sure the type matches your DB (should be number or null)
+      let parsedManualInterest: number | null = null;
+      if (input !== "") {
+        const parsed = parseFloat(input);
+        parsedManualInterest = isNaN(parsed) ? null : parsed;
+      }
+      const { error } = await supabase
+        .from("profiles")
+        .update({ manual_interest: parsedManualInterest })
+        .eq("id", userId);
+
+      if (!error) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === userId
+              ? { ...u, manual_interest: parsedManualInterest }
+              : u
+          )
+        );
+        showToast && showToast("success", "Interest updated!");
+      } else {
+        showToast && showToast("error", "Failed to update interest.");
+      }
+    } catch (err) {
+      console.error("handleSaveInterest err:", err);
+      showToast && showToast("error", "Failed to update interest.");
+    } finally {
+      setEditingUserInterestId(null);
+      setInterestEditValue("");
+    }
+  }
+// ----------- END MANUAL INTEREST HANDLING -----------
+
 
   const metrics = useMemo(() => {
     const totalUsers = users.length;
@@ -362,7 +409,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
         {/* Main content */}
         <main className="flex-1 px-2 sm:px-4 md:px-8 pt-16 lg:pt-6 pb-8">
           {renderMobileTabSelector()}
-          {/* Overview */}
+          {/* --- Overview --- */}
           {selectedTab === "overview" && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
@@ -403,7 +450,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               </section>
             </>
           )}
-          {/* Investments Table */}
+          {/* --- Investments Table --- */}
           {selectedTab === "investments" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
@@ -451,7 +498,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               </div>
             </section>
           )}
-          {/* Withdrawals Table */}
+          {/* --- Withdrawals Table --- */}
           {selectedTab === "withdrawals" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
@@ -499,7 +546,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               </div>
             </section>
           )}
-          {/* Users Table */}
+          {/* --- Users Table --- */}
           {selectedTab === "users" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
@@ -507,51 +554,123 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                 <span className="text-sm text-neutral-400">{users.length} rows</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[480px] w-full text-sm">
+                <table className="min-w-[520px] w-full text-sm">
                   <thead>
-  <tr className="bg-neutral-800">
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Name</th>
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Email</th>
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Password</th>
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Admin?</th>
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Created At</th>
-    <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Investments</th>
-    <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
-  </tr>
-</thead>
-
+                    <tr className="bg-neutral-800">
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Name</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Email</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Password</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Admin?</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Created At</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Investments</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Manual Profit</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {users.length === 0
-                      ? <tr><td colSpan={6} className="py-6 text-center text-neutral-400">No users found.</td></tr>
+                      ? <tr><td colSpan={8} className="py-6 text-center text-neutral-400">No users found.</td></tr>
                       : users.map(u => (
-                     <tr key={u.id} className="hover:bg-neutral-850">
-  <td className="py-2 px-3 truncate max-w-[10rem]">{u.name}</td>
-  <td className="py-2 px-3 truncate max-w-[12rem]">{u.email}</td>
-  <td className="py-2 px-3 truncate max-w-[10rem] text-rose-300 font-mono">{u.password || "—"}</td>
-  <td className="py-2 px-3">{u.is_admin ? "Yes" : "No"}</td>
-  <td className="py-2 px-3 truncate max-w-[10rem]">
-    {u.created_at && new Date(u.created_at).toLocaleString()}
-  </td>
-  <td className="py-2 px-3">
-    {investments.filter(i => i.user_id === u.id).length}
-  </td>
-  <td className="py-2 px-3 text-right">
-    <button
-      onClick={() => handleDeleteUser(u.id)}
-      className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-800 text-xs"
-    >
-      Delete
-    </button>
-  </td>
-</tr>
-
+                        <tr key={u.id} className="hover:bg-neutral-850">
+                          <td className="py-2 px-3 truncate max-w-[10rem]">{u.name}</td>
+                          <td className="py-2 px-3 truncate max-w-[12rem]">{u.email}</td>
+                          <td className="py-2 px-3 truncate max-w-[10rem] text-rose-300 font-mono">{u.password || "—"}</td>
+                          <td className="py-2 px-3">{u.is_admin ? "Yes" : "No"}</td>
+                          <td className="py-2 px-3 truncate max-w-[10rem]">
+                            {u.created_at && new Date(u.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3">
+                            {investments.filter(i => i.user_id === u.id).length}
+                          </td>
+                          {/* MANUAL INTEREST FEATURE */}
+                          <td className="py-2 px-3">
+                            {editingUserInterestId === u.id ? (
+                              <form
+                                onSubmit={e => {
+                                  e.preventDefault();
+                                  handleSaveInterest(u.id);
+                                }}
+                                className="flex items-center gap-2"
+                              >
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="Profit"
+                                  value={interestEditValue}
+                                  onChange={e => setInterestEditValue(e.target.value)}
+                                  className="w-20 p-1 rounded bg-neutral-800 border border-neutral-600 text-white"
+                                />
+                                <button
+                                  type="submit"
+                                  className="px-2 py-1 rounded bg-green-700 text-xs"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingUserInterestId(null);
+                                    setInterestEditValue("");
+                                  }}
+                                  className="px-2 py-1 rounded bg-neutral-600 text-xs"
+                                >
+                                  Cancel
+                                </button>
+                              </form>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span>
+                                  {u.manual_interest !== null && u.manual_interest !== undefined
+                                    ? Number(u.manual_interest).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                    : <span className="text-neutral-400">Auto (5%)</span>
+                                  }
+                                </span>
+                                <button
+                                  className="px-2 py-1 rounded bg-blue-700 text-white text-xs"
+                                  onClick={() => {
+                                    setEditingUserInterestId(u.id);
+                                    setInterestEditValue(
+                                      u.manual_interest !== null && u.manual_interest !== undefined
+                                        ? String(u.manual_interest)
+                                        : ""
+                                    );
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                {u.manual_interest !== null && u.manual_interest !== undefined && (
+                                  <button
+                                    className="px-2 py-1 rounded bg-rose-700 text-white text-xs"
+                                    title="Reset to Auto-calculated"
+                                    onClick={() => {
+                                      setInterestEditValue("");
+                                      setEditingUserInterestId(u.id);
+                                      handleSaveInterest(u.id);
+                                    }}
+                                  >
+                                    Reset
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          {/* END MANUAL INTEREST FEATURE */}
+                          <td className="py-2 px-3 text-right">
+                            <button
+                              onClick={() => handleDeleteUser(u.id)}
+                              className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-800 text-xs"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
                       ))}
                   </tbody>
                 </table>
               </div>
             </section>
           )}
-          {/* Deposit Addresses */}
+          {/* --- Deposit Addresses --- */}
           {selectedTab === "addresses" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <h3 className="text-lg font-bold mb-4 text-blue-100">Deposit Addresses</h3>
@@ -593,7 +712,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               )}
             </section>
           )}
-          {/* Activity Table */}
+          {/* --- Activity Table --- */}
           {selectedTab === "activity" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <h3 className="text-lg font-bold mb-4 text-purple-100">User Activity Logs</h3>
