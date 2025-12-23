@@ -97,6 +97,40 @@ export default function ProfilePage() {
     if (!loading && !user) router.push("/");
   }, [loading, user, router]);
 
+  // Helper: compute per-investment daily profit according to requirements
+  function computeDailyProfitForInvestment(inv: any) {
+    // inv is expected to have amount and created_at (ISO string) and status
+    const amount = Number(inv.amount) || 0;
+    if (amount <= 0) return 0;
+
+    const now = new Date();
+    let daysElapsed = 0;
+    try {
+      if (inv.created_at) {
+        const created = new Date(inv.created_at);
+        const diffMs = Math.max(0, now.getTime() - created.getTime());
+        daysElapsed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      }
+    } catch (err) {
+      daysElapsed = 0;
+    }
+
+    // Tiered rules:
+    // - amount < 10,000: start at 5% daily, increase by 5 percentage points per full day (day0 = 5%, day1 = 10%, ...)
+    // - 10,000 <= amount < 100,000: fixed 8% daily
+    // - amount >= 100,000: fixed 12% daily
+    let dailyRate = 0;
+    if (amount < 10000) {
+      dailyRate = 0.05 + daysElapsed * 0.05; // increases by 5% (absolute) per day
+    } else if (amount >= 10000 && amount < 100000) {
+      dailyRate = 0.08;
+    } else {
+      dailyRate = 0.12;
+    }
+
+    return amount * dailyRate;
+  }
+
   useEffect(() => {
     if (!user) return;
     let mounted = true;
@@ -115,9 +149,10 @@ export default function ProfilePage() {
           console.error("manual_interest fetch error:", profileErr);
         }
 
+        // include created_at so we can compute increasing rates for <10k deposits
         const { data: investedData, error: investedErr } = await supabase
           .from("investments")
-          .select("amount, status")
+          .select("amount, status, created_at")
           .eq("user_id", user.id)
           .eq("status", "success");
 
@@ -131,7 +166,7 @@ export default function ProfilePage() {
           setTotalInvested(investedSum);
 
           // --- USE manual_interest override if present ---
-          let profitToShow;
+          let profitToShow: number;
           if (
             profileRow &&
             profileRow.manual_interest !== null &&
@@ -139,8 +174,13 @@ export default function ProfilePage() {
           ) {
             profitToShow = Number(profileRow.manual_interest); // admin set
           } else {
-            // default calculation
-            profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
+            // default calculation: sum per-investment daily profits using our tier rules
+            const perInvProfits = (investedData || []).map((inv: any) =>
+              computeDailyProfitForInvestment(inv)
+            );
+            profitToShow = perInvProfits.reduce((s: number, v: number) => s + v, 0);
+            // round to 2 decimals
+            profitToShow = Math.round(profitToShow * 100) / 100;
           }
           setTotalProfit(profitToShow);
         } else {
@@ -289,6 +329,14 @@ export default function ProfilePage() {
     email: user.email,
   };
 
+  // Helper for display label based on totalInvested thresholds
+  const getProfitLabelForDisplay = (total: number | null) => {
+    if (!total || total <= 0) return "5% daily";
+    if (total < 10000) return "5% daily (increases 5% every day)";
+    if (total >= 10000 && total < 100000) return "8% daily";
+    return "12% daily";
+  };
+
   return (
     <main className="min-h-screen bg-darkmode text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 sm:py-10">
@@ -323,7 +371,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
-                // Refresh profits button: recompute using only approved/successful investments
+                // Refresh profits button: recompute using only approved/successful investments (with created_at)
                 setLoadingStats(true);
                 try {
                   const { data: profileRow } = await supabase
@@ -334,7 +382,7 @@ export default function ProfilePage() {
 
                   const { data: investedData } = await supabase
                     .from("investments")
-                    .select("amount, status")
+                    .select("amount, status, created_at")
                     .eq("user_id", user.id)
                     .eq("status", "success");
 
@@ -352,8 +400,12 @@ export default function ProfilePage() {
                   ) {
                     profitToShow = Number(profileRow.manual_interest); // admin set
                   } else {
-                    // default calculation
-                    profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
+                    // default calculation using per-investment rules
+                    const perInvProfits = (investedData || []).map((inv: any) =>
+                      computeDailyProfitForInvestment(inv)
+                    );
+                    profitToShow = perInvProfits.reduce((s: number, v: number) => s + v, 0);
+                    profitToShow = Math.round(profitToShow * 100) / 100;
                   }
                   setTotalProfit(profitToShow);
                 } catch (err) {
@@ -411,13 +463,15 @@ export default function ProfilePage() {
               </div>
               <div>
                 <div className="text-midnight_text text-xs sm:text-sm">
-                  Total Profit (5% daily)
+                  Total Profit ({getProfitLabelForDisplay(totalInvested)})
                 </div>
                 <div className="text-white text-lg sm:text-xl font-bold">
                   {formatCurrency(totalProfit)}
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
-                  Daily estimated profit at 5% of total invested
+                  {totalInvested && totalInvested < 10000
+                    ? "Per-deposit rates start at 5% and increase by 5% each full day since deposit"
+                    : "Daily estimated profit based on current tier per deposit"}
                 </div>
               </div>
             </div>
