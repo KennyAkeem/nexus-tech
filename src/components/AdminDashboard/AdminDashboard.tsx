@@ -4,9 +4,19 @@ import React, { useCallback, useEffect, useMemo, useState, FormEvent } from "rea
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-const TABLE_FETCH_LIMIT = 1000;
+// Add this type declaration here (above your component)
+type Investment = {
+  id: string;
+  user_id: string;
+  coin: string;
+  amount: number;
+  status: string;
+  debited?: boolean;
+  debited_amount?: number;
+  created_at: string;
+};
 
-// Start of original file (now with manual interest feature)
+const TABLE_FETCH_LIMIT = 1000;
 
 export default function AdminDashboard({ showToast }: { showToast?: (type: string, message: string) => void }) {
   const router = useRouter();
@@ -37,6 +47,12 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
   // MANUAL INTEREST FEATURE STATE
   const [editingUserInterestId, setEditingUserInterestId] = useState<string | null>(null);
   const [interestEditValue, setInterestEditValue] = useState<string>("");
+
+  // NEWSLETTER STATE
+  const [newsletterSubject, setNewsletterSubject] = useState("");
+  const [newsletterMessage, setNewsletterMessage] = useState("");
+  const [newsletterRecipient, setNewsletterRecipient] = useState("all");
+  const [sendingNewsletter, setSendingNewsletter] = useState(false);
 
   // --- Profile loading ---
   useEffect(() => {
@@ -120,46 +136,31 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
   // --- Realtime subscriptions ---
   useEffect(() => {
     if (currentProfile === undefined || currentProfile === null) return;
-    // INVESTMENTS
     const invChannel = supabase
       .channel("realtime_investments")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "investments" },
-        (payload) => { setInvestments((prev) => [payload.new, ...prev]); }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "investments" },
-        (payload) => {
-          setInvestments((prev) => prev.map((i) => (i.id === payload.new.id ? payload.new : i)));
-        }
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "investments" }, (payload) => {
+        setInvestments((prev) => [payload.new, ...prev]);
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "investments" }, (payload) => {
+        setInvestments((prev) => prev.map((i) => (i.id === payload.new.id ? payload.new : i)));
+      })
       .subscribe();
-    // WITHDRAWALS
+
     const wdChannel = supabase
       .channel("realtime_withdrawals")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "withdrawals" },
-        (payload) => { setWithdrawals((prev) => [payload.new, ...prev]); }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "withdrawals" },
-        (payload) => {
-          setWithdrawals((prev) => prev.map((w) => (w.id === payload.new.id ? payload.new : w)));
-        }
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "withdrawals" }, (payload) => {
+        setWithdrawals((prev) => [payload.new, ...prev]);
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "withdrawals" }, (payload) => {
+        setWithdrawals((prev) => prev.map((w) => (w.id === payload.new.id ? payload.new : w)));
+      })
       .subscribe();
-    // USER ACTIVITY
+
     const logChannel = supabase
       .channel("realtime_user_activity")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "user_activity" },
-        (payload) => { setActivityLogs((prev) => [payload.new, ...prev]); }
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "user_activity" }, (payload) => {
+        setActivityLogs((prev) => [payload.new, ...prev]);
+      })
       .subscribe();
 
     return () => {
@@ -207,31 +208,226 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
     }
   }
 
-  async function approveInvestment(investmentId: string) {
+  const approveWithdrawal = async (withdrawalId: string): Promise<void> => {
     try {
-      const { error } = await supabase.from("investments").update({ status: "success" }).eq("id", investmentId);
-      if (!error) {
-        showToast && showToast("success", "Investment approved!");
+      const { data: wdRow, error: wdErr } = await supabase
+        .from("withdrawals")
+        .select("*")
+        .eq("id", withdrawalId)
+        .maybeSingle();
+      if (wdErr || !wdRow) {
+        showToast && showToast("error", "Could not fetch withdrawal info!");
+        return;
+      }
+      if (String(wdRow.status).toLowerCase() !== "pending") {
+        showToast && showToast("info", "Withdrawal is not pending or already processed.");
+        return;
+      }
+
+      const { data: investmentsRaw, error: invFetchErr } = await supabase
+        .from("investments")
+        .select("*")
+        .eq("user_id", wdRow.user_id)
+        .eq("coin", wdRow.coin)
+        .eq("status", "success");
+
+      if (invFetchErr) {
+        showToast && showToast("error", "Could not fetch investments!");
+        return;
+      }
+
+      const investments: Investment[] = (investmentsRaw as Investment[] | null) || [];
+
+      const eligible = investments
+        .map((inv) => ({
+          ...inv,
+          amount: Number(inv.amount || 0),
+          debited_amount: Number(inv.debited_amount || 0),
+        }))
+        .filter((inv) => inv.amount - (inv.debited_amount || 0) > 0);
+
+      eligible.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      const totalAvailable = eligible.reduce((s, inv) => s + (inv.amount - (inv.debited_amount || 0)), 0);
+      const withdrawAmount = Number(wdRow.amount || 0);
+      if (totalAvailable + 0.000001 < withdrawAmount) {
+        showToast && showToast("error", "Not enough available balance to cover this withdrawal.");
+        return;
+      }
+
+      let remaining = withdrawAmount;
+      for (const inv of eligible) {
+        if (remaining <= 0) break;
+        const available = inv.amount - (inv.debited_amount || 0);
+        if (available <= 0) continue;
+        const toDebit = Math.min(available, remaining);
+        const newDebitedAmount = (inv.debited_amount || 0) + toDebit;
+
+        const { error: updateErr } = await supabase
+          .from("investments")
+          .update({
+            debited_amount: newDebitedAmount,
+            ...(newDebitedAmount >= inv.amount ? { debited: true } : {}),
+          })
+          .eq("id", inv.id);
+
+        if (updateErr) {
+          showToast && showToast("error", `Failed to debit investment ${inv.id}: ${updateErr.message}`);
+          return;
+        }
+
+        remaining -= toDebit;
+      }
+
+      if (remaining > 0.000001) {
+        showToast && showToast("error", "Failed to fully debit investments for this withdrawal.");
+        return;
+      }
+
+      const { error: wdUpdateErr } = await supabase
+        .from("withdrawals")
+        .update({ status: "success" })
+        .eq("id", withdrawalId);
+
+      if (wdUpdateErr) {
+        showToast && showToast("error", "Failed to approve withdrawal: " + (wdUpdateErr.message || ""));
+        return;
+      }
+
+      const { data: refreshed } = await supabase.from("withdrawals").select("*").eq("id", withdrawalId).maybeSingle();
+      if (refreshed) setWithdrawals((prev) => prev.map((w) => (w.id === withdrawalId ? refreshed : w)));
+
+      showToast && showToast("success", "Withdrawal approved and investments debited!");
+    } catch (err) {
+      console.error("approveWithdrawal err:", err);
+      showToast && showToast("error", "Failed to approve withdrawal.");
+    }
+  };
+
+  const approveInvestment = async (investmentId: string): Promise<void> => {
+    try {
+      console.log("approveInvestment called with id:", investmentId);
+      if (!investmentId) {
+        showToast && showToast("error", "No investment id provided.");
+        return;
+      }
+
+      const { data: invRow, error: invFetchErr } = await supabase
+        .from("investments")
+        .select("*")
+        .eq("id", investmentId)
+        .maybeSingle();
+
+      if (invFetchErr) {
+        console.error("Failed to fetch investment before approve:", invFetchErr);
+        showToast && showToast("error", "Failed to fetch investment.");
+        return;
+      }
+
+      if (!invRow) {
+        showToast && showToast("error", "Investment not found.");
+        return;
+      }
+
+      if (String(invRow.status).toLowerCase() === "success") {
+        showToast && showToast("info", "Investment already approved.");
+        return;
+      }
+
+      const { error: updateErr } = await supabase
+        .from("investments")
+        .update({ status: "success" })
+        .eq("id", investmentId);
+
+      if (updateErr) {
+        console.error("Supabase update error:", updateErr);
+        showToast && showToast("error", "Failed to approve investment.");
+        return;
+      }
+
+      try {
         const { data } = await supabase.from("investments").select("*").eq("id", investmentId).maybeSingle();
-        if (data) setInvestments((prev) => prev.map((i) => (i.id === investmentId ? data : i)));
-      } else showToast && showToast("error", "Failed to approve investment.");
+        if (data) {
+          setInvestments((prev) => prev.map((i) => (i.id === investmentId ? data : i)));
+        }
+      } catch (refreshErr) {
+        console.warn("Failed to refresh investments after approve:", refreshErr);
+      }
+
+      showToast && showToast("success", "Investment approved!");
     } catch (err) {
       console.error("approveInvestment err:", err);
       showToast && showToast("error", "Failed to approve investment.");
     }
+  };
+
+  // ✅ REJECT INVESTMENT
+  async function rejectInvestment(investmentId: string) {
+    try {
+      const inv = investments.find((i) => i.id === investmentId);
+      if (!inv) {
+        showToast && showToast("error", "Investment not found.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("investments")
+        .update({ status: "rejected" })
+        .eq("id", investmentId);
+
+      if (!error) {
+        setInvestments((prev) => prev.map((i) => i.id === investmentId ? { ...i, status: "rejected" } : i));
+
+        // Update user's profile status to rejected
+        if (inv.user_id) {
+          await supabase.from("profiles").update({ status: "rejected" }).eq("id", inv.user_id);
+          setUsers((prev) =>
+            prev.map((u) => u.id === inv.user_id ? { ...u, status: "rejected" } : u)
+          );
+        }
+
+        showToast && showToast("success", "Investment rejected!");
+      } else {
+        showToast && showToast("error", "Failed to reject investment.");
+      }
+    } catch (err) {
+      console.error("rejectInvestment err:", err);
+      showToast && showToast("error", "Failed to reject investment.");
+    }
   }
 
-  async function approveWithdrawal(withdrawalId: string) {
+  // ✅ REJECT WITHDRAWAL
+  async function rejectWithdrawal(withdrawalId: string) {
     try {
-      const { error } = await supabase.from("withdrawals").update({ status: "success" }).eq("id", withdrawalId);
+      const wd = withdrawals.find((w) => w.id === withdrawalId);
+      if (!wd) {
+        showToast && showToast("error", "Withdrawal not found.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("withdrawals")
+        .update({ status: "rejected" })
+        .eq("id", withdrawalId);
+
       if (!error) {
-        showToast && showToast("success", "Withdrawal approved!");
-        const { data } = await supabase.from("withdrawals").select("*").eq("id", withdrawalId).maybeSingle();
-        if (data) setWithdrawals((prev) => prev.map((w) => (w.id === withdrawalId ? data : w)));
-      } else showToast && showToast("error", "Failed to approve withdrawal.");
+        setWithdrawals((prev) => prev.map((w) => w.id === withdrawalId ? { ...w, status: "rejected" } : w));
+
+        // Update user's profile status to rejected
+        if (wd.user_id) {
+          await supabase.from("profiles").update({ status: "rejected" }).eq("id", wd.user_id);
+          setUsers((prev) =>
+            prev.map((u) => u.id === wd.user_id ? { ...u, status: "rejected" } : u)
+          );
+        }
+
+        showToast && showToast("success", "Withdrawal rejected!");
+      } else {
+        showToast && showToast("error", "Failed to reject withdrawal.");
+      }
     } catch (err) {
-      console.error("approveWithdrawal err:", err);
-      showToast && showToast("error", "Failed to approve withdrawal.");
+      console.error("rejectWithdrawal err:", err);
+      showToast && showToast("error", "Failed to reject withdrawal.");
     }
   }
 
@@ -248,13 +444,9 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
     }
   }
 
-  
-// ----------- MANUAL INTEREST HANDLING -----------
   async function handleSaveInterest(userId: string) {
     try {
-      // Accept string or number, translate empty string to null, otherwise parse number safely
       let input = interestEditValue.trim();
-      // TS: make sure the type matches your DB (should be number or null)
       let parsedManualInterest: number | null = null;
       if (input !== "") {
         const parsed = parseFloat(input);
@@ -285,8 +477,58 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
       setInterestEditValue("");
     }
   }
-// ----------- END MANUAL INTEREST HANDLING -----------
 
+  // ✅ SEND NEWSLETTER
+  async function sendNewsletter(e: FormEvent) {
+    e.preventDefault();
+    if (!newsletterSubject.trim() || !newsletterMessage.trim()) {
+      showToast && showToast("error", "Subject and message are required.");
+      return;
+    }
+
+    setSendingNewsletter(true);
+    try {
+      let recipientEmails: string[] = [];
+
+      if (newsletterRecipient === "all") {
+        recipientEmails = users.map(u => u.email).filter(Boolean);
+      } else {
+        recipientEmails = [newsletterRecipient];
+      }
+
+      if (recipientEmails.length === 0) {
+        showToast && showToast("error", "No valid recipients found.");
+        setSendingNewsletter(false);
+        return;
+      }
+
+      // TODO: Replace with your email service API call
+      // Example: await fetch("/api/send-newsletter", {
+      //   method: "POST",
+      //   body: JSON.stringify({
+      //     recipients: recipientEmails,
+      //     subject: newsletterSubject,
+      //     message: newsletterMessage
+      //   })
+      // })
+
+      console.log("Newsletter to send:", {
+        recipients: recipientEmails,
+        subject: newsletterSubject,
+        message: newsletterMessage
+      });
+
+      showToast && showToast("success", `Newsletter sent to ${recipientEmails.length} recipient(s)!`);
+      setNewsletterSubject("");
+      setNewsletterMessage("");
+      setNewsletterRecipient("all");
+    } catch (err) {
+      console.error("sendNewsletter err:", err);
+      showToast && showToast("error", "Failed to send newsletter.");
+    } finally {
+      setSendingNewsletter(false);
+    }
+  }
 
   const metrics = useMemo(() => {
     const totalUsers = users.length;
@@ -302,6 +544,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
     { id: "withdrawals", label: "Withdrawals", icon: "🔄" },
     { id: "users", label: "Users", icon: "👥" },
     { id: "addresses", label: "Addresses", icon: "📬" },
+    { id: "newsletter", label: "Newsletters", icon: "📧" },
     { id: "activity", label: "Activity", icon: "📊" }
   ];
 
@@ -351,13 +594,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
   const renderMobileHeader = () => (
     <header className="lg:hidden sticky top-0 z-40 bg-neutral-900/95 backdrop-blur border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
       <span className="font-bold text-lg text-white">Admin</span>
-      <button
-        className="text-2xl text-white"
-        onClick={() => setMobileNavOpen(true)}
-        aria-label="Open menu"
-      >
-        ☰
-      </button>
+      <button className="text-2xl text-white" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">☰</button>
     </header>
   );
 
@@ -458,7 +695,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                 <span className="text-sm text-neutral-400">{investments.length} rows</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[480px] w-full text-sm">
+                <table className="min-w-[600px] w-full text-sm">
                   <thead>
                     <tr className="bg-neutral-800">
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">User</th>
@@ -466,7 +703,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Amount</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Status</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Time</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Action</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -474,21 +711,35 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                       ? <tr><td colSpan={6} className="py-6 text-center text-neutral-400">No investments found.</td></tr>
                       : investments.map(inv => {
                         const invUser = getUserById(inv.user_id);
+                        const isPending = String(inv.status).toLowerCase() === "pending";
+                        const isRejected = String(inv.status).toLowerCase() === "rejected";
+
                         return (
                           <tr key={inv.id} className="hover:bg-neutral-850">
                             <td className="py-2 px-3 truncate max-w-[10rem]">{invUser?.name || invUser?.email || "Unknown"}</td>
                             <td className="py-2 px-3 truncate max-w-[7rem]">{inv.coin?.toUpperCase()}</td>
-                            <td className="py-2 px-3 truncate max-w-[7rem]">{inv.amount}</td>
+                            <td className="py-2 px-3 truncate max-w-[7rem]">${Number(inv.amount).toLocaleString()}</td>
                             <td className="py-2 px-3">
-                              <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${String(inv.status).toLowerCase() === "pending" ? "bg-yellow-700 text-yellow-100" : "bg-green-700 text-green-100"}`}>
+                              <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${
+                                isPending ? "bg-yellow-700 text-yellow-100" :
+                                isRejected ? "bg-rose-700 text-rose-100" :
+                                "bg-green-700 text-green-100"
+                              }`}>
                                 {inv.status?.charAt(0).toUpperCase() + (inv.status?.slice(1) || "")}
                               </span>
                             </td>
-                            <td className="py-2 px-3 truncate max-w-[10rem]">{inv.created_at && new Date(inv.created_at).toLocaleString()}</td>
+                            <td className="py-2 px-3 truncate max-w-[10rem] text-xs">{inv.created_at && new Date(inv.created_at).toLocaleString()}</td>
                             <td className="py-2 px-3 text-right">
-                              {String(inv.status).toLowerCase() === "pending"
-                                ? <button onClick={() => approveInvestment(inv.id)} className="px-3 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-xs">Approve</button>
-                                : <span className="text-xs text-green-200 font-bold">Approved</span>}
+                              {isPending ? (
+                                <div className="flex gap-2 justify-end flex-wrap">
+                                  <button onClick={() => approveInvestment(inv.id)} className="px-3 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-xs whitespace-nowrap">Approve</button>
+                                  <button onClick={() => rejectInvestment(inv.id)} className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-800 text-xs whitespace-nowrap">Reject</button>
+                                </div>
+                              ) : (
+                                <span className={`text-xs font-bold ${isRejected ? "text-rose-400" : "text-green-200"}`}>
+                                  {inv.status?.charAt(0).toUpperCase() + (inv.status?.slice(1) || "")}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -506,7 +757,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                 <span className="text-sm text-neutral-400">{withdrawals.length} rows</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[480px] w-full text-sm">
+                <table className="min-w-[600px] w-full text-sm">
                   <thead>
                     <tr className="bg-neutral-800">
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">User</th>
@@ -514,7 +765,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Amount</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Status</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Time</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Action</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-300 whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -522,21 +773,35 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                       ? <tr><td colSpan={6} className="py-6 text-center text-neutral-400">No withdrawals found.</td></tr>
                       : withdrawals.map(wd => {
                         const wdUser = getUserById(wd.user_id);
+                        const isPending = String(wd.status).toLowerCase() === "pending";
+                        const isRejected = String(wd.status).toLowerCase() === "rejected";
+
                         return (
                           <tr key={wd.id} className="hover:bg-neutral-850">
                             <td className="py-2 px-3 truncate max-w-[10rem]">{wdUser?.name || wdUser?.email || "Unknown"}</td>
                             <td className="py-2 px-3 truncate max-w-[7rem]">{wd.coin?.toUpperCase()}</td>
-                            <td className="py-2 px-3 truncate max-w-[7rem]">{wd.amount}</td>
+                            <td className="py-2 px-3 truncate max-w-[7rem]">${Number(wd.amount).toLocaleString()}</td>
                             <td className="py-2 px-3">
-                              <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${String(wd.status).toLowerCase() === "pending" ? "bg-yellow-700 text-yellow-100" : "bg-green-700 text-green-100"}`}>
+                              <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${
+                                isPending ? "bg-yellow-700 text-yellow-100" :
+                                isRejected ? "bg-rose-700 text-rose-100" :
+                                "bg-green-700 text-green-100"
+                              }`}>
                                 {wd.status?.charAt(0).toUpperCase() + (wd.status?.slice(1) || "")}
                               </span>
                             </td>
-                            <td className="py-2 px-3 truncate max-w-[10rem]">{wd.created_at && new Date(wd.created_at).toLocaleString()}</td>
+                            <td className="py-2 px-3 truncate max-w-[10rem] text-xs">{wd.created_at && new Date(wd.created_at).toLocaleString()}</td>
                             <td className="py-2 px-3 text-right">
-                              {String(wd.status).toLowerCase() === "pending"
-                                ? <button onClick={() => approveWithdrawal(wd.id)} className="px-3 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-xs">Approve</button>
-                                : <span className="text-xs text-green-200 font-bold">Approved</span>}
+                              {isPending ? (
+                                <div className="flex gap-2 justify-end flex-wrap">
+                                  <button onClick={() => approveWithdrawal(wd.id)} className="px-3 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-xs whitespace-nowrap">Approve</button>
+                                  <button onClick={() => rejectWithdrawal(wd.id)} className="px-3 py-2 rounded bg-rose-700 text-white font-bold hover:bg-rose-800 text-xs whitespace-nowrap">Reject</button>
+                                </div>
+                              ) : (
+                                <span className={`text-xs font-bold ${isRejected ? "text-rose-400" : "text-green-200"}`}>
+                                  {wd.status?.charAt(0).toUpperCase() + (wd.status?.slice(1) || "")}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -554,12 +819,12 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                 <span className="text-sm text-neutral-400">{users.length} rows</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[520px] w-full text-sm">
+                <table className="min-w-[800px] w-full text-sm">
                   <thead>
                     <tr className="bg-neutral-800">
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Name</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Email</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Password</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Status</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Admin?</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Created At</th>
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">Investments</th>
@@ -573,10 +838,16 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                       : users.map(u => (
                         <tr key={u.id} className="hover:bg-neutral-850">
                           <td className="py-2 px-3 truncate max-w-[10rem]">{u.name}</td>
-                          <td className="py-2 px-3 truncate max-w-[12rem]">{u.email}</td>
-                          <td className="py-2 px-3 truncate max-w-[10rem] text-rose-300 font-mono">{u.password || "—"}</td>
-                          <td className="py-2 px-3">{u.is_admin ? "Yes" : "No"}</td>
-                          <td className="py-2 px-3 truncate max-w-[10rem]">
+                          <td className="py-2 px-3 truncate max-w-[12rem] text-xs">{u.email}</td>
+                          <td className="py-2 px-3">
+                            <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${
+                              u.status === "rejected" ? "bg-rose-700 text-rose-100" : "bg-green-700 text-green-100"
+                            }`}>
+                              {u.status ? u.status.charAt(0).toUpperCase() + u.status.slice(1) : "Active"}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3">{u.is_admin ? "✓ Yes" : "—"}</td>
+                          <td className="py-2 px-3 truncate max-w-[10rem] text-xs">
                             {u.created_at && new Date(u.created_at).toLocaleString()}
                           </td>
                           <td className="py-2 px-3">
@@ -598,7 +869,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                                   placeholder="Profit"
                                   value={interestEditValue}
                                   onChange={e => setInterestEditValue(e.target.value)}
-                                  className="w-20 p-1 rounded bg-neutral-800 border border-neutral-600 text-white"
+                                  className="w-20 p-1 rounded bg-neutral-800 border border-neutral-600 text-white text-xs"
                                 />
                                 <button
                                   type="submit"
@@ -619,7 +890,7 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                               </form>
                             ) : (
                               <div className="flex items-center gap-2">
-                                <span>
+                                <span className="text-xs">
                                   {u.manual_interest !== null && u.manual_interest !== undefined
                                     ? Number(u.manual_interest).toLocaleString(undefined, { maximumFractionDigits: 2 })
                                     : <span className="text-neutral-400">Auto (5%)</span>
@@ -678,19 +949,19 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-4 rounded-md bg-neutral-800 border border-neutral-700">
                     <div className="text-md font-bold text-blue-200">BTC</div>
-                    <div className="mt-2 text-md break-all text-neutral-100">{editAddresses.btc || "—"}</div>
+                    <div className="mt-2 text-sm break-all text-neutral-100">{editAddresses.btc || "—"}</div>
                   </div>
                   <div className="p-4 rounded-md bg-neutral-800 border border-neutral-700">
                     <div className="text-md font-bold text-blue-200">ETH (ERC20)</div>
-                    <div className="mt-2 text-md break-all text-neutral-100">{editAddresses.eth || "—"}</div>
+                    <div className="mt-2 text-sm break-all text-neutral-100">{editAddresses.eth || "—"}</div>
                   </div>
                   <div className="p-4 rounded-md bg-neutral-800 border border-neutral-700">
                     <div className="text-md font-bold text-yellow-200">USDT (BEP20)</div>
-                    <div className="mt-2 text-md break-all text-neutral-100">{editAddresses.usdt_bep20 || "—"}</div>
+                    <div className="mt-2 text-sm break-all text-neutral-100">{editAddresses.usdt_bep20 || "—"}</div>
                   </div>
                   <div className="p-4 rounded-md bg-neutral-800 border border-neutral-700">
                     <div className="text-md font-bold text-yellow-200">USDT (TRC20)</div>
-                    <div className="mt-2 text-md break-all text-neutral-100">{editAddresses.usdt_trc20 || "—"}</div>
+                    <div className="mt-2 text-sm break-all text-neutral-100">{editAddresses.usdt_trc20 || "—"}</div>
                   </div>
                   <div className="col-span-full flex gap-2 mt-4">
                     <button onClick={() => setEditMode(true)} className="px-6 py-3 rounded-md bg-blue-700 text-white font-bold hover:bg-blue-800">Edit</button>
@@ -712,12 +983,92 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
               )}
             </section>
           )}
+          {/* --- Newsletter Section --- */}
+          {selectedTab === "newsletter" && (
+            <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800 max-w-2xl">
+              <h3 className="text-lg font-bold mb-6 text-blue-100">📧 Send Newsletter</h3>
+              <form onSubmit={sendNewsletter} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-neutral-300">Recipient</label>
+                  <select
+                    value={newsletterRecipient}
+                    onChange={(e) => setNewsletterRecipient(e.target.value)}
+                    className="w-full p-3 rounded-md bg-neutral-800 text-white border border-neutral-700 focus:outline-none focus:ring focus:ring-blue-700"
+                  >
+                    <option value="all">📬 All Users ({users.length} total)</option>
+                    <optgroup label="Individual Users">
+                      {users.map(user => (
+                        <option key={user.id} value={user.email}>{user.name || user.email}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-neutral-300">Subject</label>
+                  <input
+                    type="text"
+                    required
+                    value={newsletterSubject}
+                    onChange={(e) => setNewsletterSubject(e.target.value)}
+                    className="w-full p-3 rounded-md bg-neutral-800 text-white border border-neutral-700 focus:outline-none focus:ring focus:ring-blue-700"
+                    placeholder="Enter newsletter subject..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-neutral-300">Message</label>
+                  <textarea
+                    required
+                    rows={8}
+                    value={newsletterMessage}
+                    onChange={(e) => setNewsletterMessage(e.target.value)}
+                    className="w-full p-3 rounded-md bg-neutral-800 text-white border border-neutral-700 focus:outline-none focus:ring focus:ring-blue-700"
+                    placeholder="Type your message here..."
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <button
+                    type="submit"
+                    disabled={sendingNewsletter}
+                    className={`flex-1 px-6 py-3 rounded-md text-white font-bold transition ${
+                      sendingNewsletter
+                        ? "bg-neutral-600 cursor-not-allowed"
+                        : "bg-blue-700 hover:bg-blue-800"
+                    }`}
+                  >
+                    {sendingNewsletter ? "Sending..." : "Send Newsletter"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewsletterSubject("");
+                      setNewsletterMessage("");
+                      setNewsletterRecipient("all");
+                    }}
+                    className="px-6 py-3 rounded-md bg-neutral-700 text-white font-bold hover:bg-neutral-800"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="mt-4 p-4 rounded-md bg-neutral-800 border border-neutral-700 text-sm text-neutral-300">
+                  <p className="font-semibold mb-2">Preview:</p>
+                  <p className="text-xs mb-1"><strong>To:</strong> {newsletterRecipient === "all" ? `All Users (${users.length})` : newsletterRecipient}</p>
+                  <p className="text-xs mb-1"><strong>Subject:</strong> {newsletterSubject || "(empty)"}</p>
+                  <p className="text-xs"><strong>Message:</strong></p>
+                  <p className="text-xs whitespace-pre-wrap mt-2 text-neutral-400 bg-neutral-900 p-2 rounded">{newsletterMessage || "(empty)"}</p>
+                </div>
+              </form>
+            </section>
+          )}
           {/* --- Activity Table --- */}
           {selectedTab === "activity" && (
             <section className="rounded-xl bg-neutral-900 p-4 sm:p-6 shadow border border-neutral-800">
               <h3 className="text-lg font-bold mb-4 text-purple-100">User Activity Logs</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-[600px] w-full text-sm">
+                <table className="min-w-[700px] w-full text-sm">
                   <thead>
                     <tr className="bg-neutral-800">
                       <th className="py-2 px-3 text-left font-semibold text-neutral-300 whitespace-nowrap">User</th>
@@ -736,13 +1087,13 @@ export default function AdminDashboard({ showToast }: { showToast?: (type: strin
                         const logUser = getUserById(log.user_id);
                         return (
                           <tr key={log.id} className="hover:bg-neutral-850">
-                            <td className="py-2 px-3 font-bold truncate max-w-[10rem]">{logUser?.name || "Unknown"}</td>
-                            <td className="py-2 px-3 truncate max-w-[12rem]">{log.description}</td>
-                            <td className="py-2 px-3 truncate max-w-[8rem]">{log.ip}</td>
-                            <td className="py-2 px-3 truncate max-w-[8rem]">{log.country}</td>
-                            <td className="py-2 px-3 truncate max-w-[8rem]">{log.region}</td>
-                            <td className="py-2 px-3 truncate max-w-[8rem]">{log.city}</td>
-                            <td className="py-2 px-3 truncate max-w-[12rem]">{log.created_at && new Date(log.created_at).toLocaleString()}</td>
+                            <td className="py-2 px-3 font-bold truncate max-w-[10rem] text-xs">{logUser?.name || "Unknown"}</td>
+                            <td className="py-2 px-3 truncate max-w-[12rem] text-xs">{log.description}</td>
+                            <td className="py-2 px-3 truncate max-w-[8rem] text-xs">{log.ip}</td>
+                            <td className="py-2 px-3 truncate max-w-[8rem] text-xs">{log.country}</td>
+                            <td className="py-2 px-3 truncate max-w-[8rem] text-xs">{log.region}</td>
+                            <td className="py-2 px-3 truncate max-w-[8rem] text-xs">{log.city}</td>
+                            <td className="py-2 px-3 truncate max-w-[12rem] text-xs">{log.created_at && new Date(log.created_at).toLocaleString()}</td>
                           </tr>
                         );
                       })}
