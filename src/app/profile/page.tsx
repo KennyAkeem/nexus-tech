@@ -97,40 +97,6 @@ export default function ProfilePage() {
     if (!loading && !user) router.push("/");
   }, [loading, user, router]);
 
-  // Helper: compute per-investment daily profit according to requirements
-  function computeDailyProfitForInvestment(inv: any) {
-    // inv is expected to have amount and created_at (ISO string) and status
-    const amount = Number(inv.amount) || 0;
-    if (amount <= 0) return 0;
-
-    const now = new Date();
-    let daysElapsed = 0;
-    try {
-      if (inv.created_at) {
-        const created = new Date(inv.created_at);
-        const diffMs = Math.max(0, now.getTime() - created.getTime());
-        daysElapsed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      }
-    } catch (err) {
-      daysElapsed = 0;
-    }
-
-    // Tiered rules:
-    // - amount < 10,000: start at 5% daily, increase by 5 percentage points per full day (day0 = 5%, day1 = 10%, ...)
-    // - 10,000 <= amount < 100,000: fixed 8% daily
-    // - amount >= 100,000: fixed 12% daily
-    let dailyRate = 0;
-    if (amount < 10000) {
-      dailyRate = 0.05 + daysElapsed * 0.05; // increases by 5% (absolute) per day
-    } else if (amount >= 10000 && amount < 100000) {
-      dailyRate = 0.08;
-    } else {
-      dailyRate = 0.12;
-    }
-
-    return amount * dailyRate;
-  }
-
   useEffect(() => {
     if (!user) return;
     let mounted = true;
@@ -149,24 +115,28 @@ export default function ProfilePage() {
           console.error("manual_interest fetch error:", profileErr);
         }
 
-        // include created_at so we can compute increasing rates for <10k deposits
+        // *** SUM AVAILABLE (amount - debited_amount) FOR SUCCESS INVESTMENTS ***
         const { data: investedData, error: investedErr } = await supabase
           .from("investments")
-          .select("amount, status, created_at")
+          .select("amount, debited_amount, status")
           .eq("user_id", user.id)
           .eq("status", "success");
 
         if (investedErr) {
           console.error("investedErr", investedErr);
         } else if (mounted && investedData) {
-          const investedNumbers = investedData.map((r: any) => Number(r.amount) || 0);
+          const investedNumbers = investedData.map((r: any) => {
+            const amt = Number(r.amount) || 0;
+            const debited = Number(r.debited_amount || 0);
+            const available = Math.max(0, amt - debited);
+            return available;
+          });
           const investedSum = investedNumbers.reduce((s: number, v: number) => s + v, 0);
 
-          // set total invested (confirmed/success only)
           setTotalInvested(investedSum);
 
           // --- USE manual_interest override if present ---
-          let profitToShow: number;
+          let profitToShow;
           if (
             profileRow &&
             profileRow.manual_interest !== null &&
@@ -174,13 +144,8 @@ export default function ProfilePage() {
           ) {
             profitToShow = Number(profileRow.manual_interest); // admin set
           } else {
-            // default calculation: sum per-investment daily profits using our tier rules
-            const perInvProfits = (investedData || []).map((inv: any) =>
-              computeDailyProfitForInvestment(inv)
-            );
-            profitToShow = perInvProfits.reduce((s: number, v: number) => s + v, 0);
-            // round to 2 decimals
-            profitToShow = Math.round(profitToShow * 100) / 100;
+            // default calculation
+            profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
           }
           setTotalProfit(profitToShow);
         } else {
@@ -265,19 +230,22 @@ export default function ProfilePage() {
       // ignore - fallback to other strategies
     }
 
-    // fallback: compute from approved/successful investments only
+    // fallback: compute from approved/successful investments only, subtracting debited_amount
     try {
       const { data } = await supabase
         .from("investments")
-        .select("coin, amount, status")
+        .select("coin, amount, debited_amount, status")
         .eq("user_id", user.id)
         .eq("status", "success");
       const b: Record<string, number> = { btc: 0, eth: 0, usdt: 0 };
       if (Array.isArray(data)) {
         data.forEach((r: any) => {
           const coin = String(r.coin || "").toLowerCase();
+          const amt = Number(r.amount || 0);
+          const debited = Number(r.debited_amount || 0);
+          const available = Math.max(0, amt - debited);
           if (b[coin] === undefined) b[coin] = 0;
-          b[coin] += Number(r.amount) || 0;
+          b[coin] += available;
         });
       }
       setBalances(b);
@@ -329,14 +297,6 @@ export default function ProfilePage() {
     email: user.email,
   };
 
-  // Helper for display label based on totalInvested thresholds
-  const getProfitLabelForDisplay = (total: number | null) => {
-    if (!total || total <= 0) return "5% daily";
-    if (total < 10000) return "5% daily (increases 5% every day)";
-    if (total >= 10000 && total < 100000) return "8% daily";
-    return "12% daily";
-  };
-
   return (
     <main className="min-h-screen bg-darkmode text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 sm:py-10">
@@ -371,7 +331,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
-                // Refresh profits button: recompute using only approved/successful investments (with created_at)
+                // Refresh profits button: recompute using only approved/non-debited investments
                 setLoadingStats(true);
                 try {
                   const { data: profileRow } = await supabase
@@ -382,12 +342,16 @@ export default function ProfilePage() {
 
                   const { data: investedData } = await supabase
                     .from("investments")
-                    .select("amount, status, created_at")
+                    .select("amount, debited_amount, status")
                     .eq("user_id", user.id)
                     .eq("status", "success");
 
                   const investedNumbers = (investedData || []).map(
-                    (r: any) => Number(r.amount) || 0
+                    (r: any) => {
+                      const amt = Number(r.amount) || 0;
+                      const debited = Number(r.debited_amount || 0);
+                      return Math.max(0, amt - debited);
+                    }
                   );
                   const investedSum = investedNumbers.reduce((s: number, v: number) => s + v, 0);
                   setTotalInvested(investedSum);
@@ -400,12 +364,8 @@ export default function ProfilePage() {
                   ) {
                     profitToShow = Number(profileRow.manual_interest); // admin set
                   } else {
-                    // default calculation using per-investment rules
-                    const perInvProfits = (investedData || []).map((inv: any) =>
-                      computeDailyProfitForInvestment(inv)
-                    );
-                    profitToShow = perInvProfits.reduce((s: number, v: number) => s + v, 0);
-                    profitToShow = Math.round(profitToShow * 100) / 100;
+                    // default calculation
+                    profitToShow = Math.round(investedSum * 0.05 * 100) / 100;
                   }
                   setTotalProfit(profitToShow);
                 } catch (err) {
@@ -437,7 +397,7 @@ export default function ProfilePage() {
         {/* Dashboard Title */}
         <h2 className="text-2xl sm:text-3xl font-bold mb-2">Investment Dashboard</h2>
         <p className="text-midnight_text mb-6 sm:mb-8 text-sm sm:text-base">
-          Track your Starspace investment portfolio
+          Track your investments, profits, and manage your plans all in one place.
         </p>
 
         {/* Stat Cards - only Total Invested and Total Profit per request */}
@@ -463,15 +423,13 @@ export default function ProfilePage() {
               </div>
               <div>
                 <div className="text-midnight_text text-xs sm:text-sm">
-                  Total Profit ({getProfitLabelForDisplay(totalInvested)})
+                  Total Profit (5% daily)
                 </div>
                 <div className="text-white text-lg sm:text-xl font-bold">
                   {formatCurrency(totalProfit)}
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
-                  {totalInvested && totalInvested < 10000
-                    ? "Per-deposit rates start at 5% and increase by 5% each full day since deposit"
-                    : "Daily estimated profit based on current tier per deposit"}
+                  Daily estimated profit at 5% of total invested
                 </div>
               </div>
             </div>
@@ -486,7 +444,7 @@ export default function ProfilePage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {PLANS.map((plan) => {
-              const userHasEnough = (totalInvested ?? 0) >= plan.minDeposit; // use totalInvested
+              const userHasEnough = (totalInvested ?? 0) >= plan.minDeposit;
               const disabled = !userHasEnough;
               return (
                 <div
@@ -575,7 +533,7 @@ export default function ProfilePage() {
           />
         </div>
 
-        {/* Recent Deposits & Withdrawals (split) */}
+        {/* Recent Deposits & Withdrawals */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {/* Deposits */}
           <div className="bg-darkmode border border-midnight_text rounded-lg p-4 sm:p-6">
