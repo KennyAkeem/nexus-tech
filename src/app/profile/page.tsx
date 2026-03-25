@@ -423,13 +423,13 @@ export default function ProfilePage() {
               </div>
               <div>
                 <div className="text-midnight_text text-xs sm:text-sm">
-                  Total Profit (5% daily)
+                  Total Profit
                 </div>
                 <div className="text-white text-lg sm:text-xl font-bold">
                   {formatCurrency(totalProfit)}
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
-                  Daily estimated profit at 5% of total invested
+                  Daily estimated profit of total investment.
                 </div>
               </div>
             </div>
