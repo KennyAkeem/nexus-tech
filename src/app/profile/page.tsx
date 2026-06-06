@@ -53,12 +53,30 @@ const PLANS: Plan[] = [
     ctaLabel: "Invest Now",
   },
   {
+    id: "standard",
+    title: "Standard Plan",
+    rateLabel: "8.5% daily",
+    ratePercent: "8.5%",
+    rangeLabel: "$15,000 - $50,000",
+    minDeposit: 15000,
+    maxDeposit: 50000,
+    durationLabel: "45 days",
+    features: [
+      "8.5% daily returns",
+      "45-day investment period",
+      "Priority support",
+      "Advanced analytics",
+      "Weekly Withdrawal",
+    ],
+    ctaLabel: "Invest Now",
+  },
+  {
     id: "premium",
     title: "Premium Plan",
     rateLabel: "12.0% daily",
     ratePercent: "12%",
-    rangeLabel: "$100,000 - Unlimited",
-    minDeposit: 100000,
+    rangeLabel: "$51,000 - Unlimited",
+    minDeposit: 51,
     maxDeposit: 999999999,
     durationLabel: "60 days",
     features: [
@@ -442,7 +460,7 @@ export default function ProfilePage() {
             Investment Plans
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {PLANS.map((plan) => {
               const userHasEnough = (totalInvested ?? 0) >= plan.minDeposit;
               const disabled = !userHasEnough;
@@ -488,6 +506,8 @@ export default function ProfilePage() {
                           ? "Perfect for beginners starting their journey."
                           : plan.title === "Growth Plan"
                           ? "Ideal for investors seeking higher returns."
+                          : plan.title === "Standard Plan"
+                          ? "Ideal for moderate investors."
                           : "Maximum returns for serious investors."}
                       </div>
                     </div>
@@ -644,7 +664,7 @@ export default function ProfilePage() {
                       </div>
                       <button
                         onClick={() =>
-                          navigator.clipboard?.writeText(wd.address ?? "")
+                          navigator.clipboard?.copyText(wd.address ?? "")
                         }
                         className="text-midnight_text text-xs sm:text-sm whitespace-nowrap"
                       >
