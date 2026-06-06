@@ -664,7 +664,7 @@ export default function ProfilePage() {
                       </div>
                       <button
                         onClick={() =>
-                          navigator.clipboard?.copyText(wd.address ?? "")
+                          navigator.clipboard?.writeText(wd.address ?? "")
                         }
                         className="text-midnight_text text-xs sm:text-sm whitespace-nowrap"
                       >
